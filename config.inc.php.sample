@@ -1,0 +1,14 @@
+<?php
+
+$imap_h="localhost.localdomain"; //kolab host name
+$imap_u="hans"; // imap username
+$imap_p="wurst"; // imap password
+$imap_po=143; // imap port
+$rc_u="hans"; //roundcube username
+$rc_p="wurst"; //roundcube password
+$rc_host="http://localhost.localdomain"; //roundcube hostname
+$rc_host_path="/roundcubemail/"; // roundcube path on server
+$rc_cookie="/tmp/curl.cookie"; // curl cookie file path
+$tag_messages_processed="tag_to_tagging"; // set this tag to processed mails
+
+?>

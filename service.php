@@ -1,15 +1,5 @@
 <?php
-/* include("imap.class"); */
-$imap_h="localhost.localdomain"; //kolab host name
-$imap_u="hans"; // imap username
-$imap_p="wurst"; // imap password
-$imap_po=143; // imap port
-$rc_u="hans"; //roundcube username
-$rc_p="wurst"; //roundcube password
-$rc_host="http://localhost.localdomain"; //roundcube hostname
-$rc_host_path="/roundcubemail/"; // roundcube path on server
-$rc_cookie="/tmp/curl.cookie"; // curl cookie file path
-$tag_messages_processed="tag_to_tagging"; // set this tag to processed mails
+include("config.inc.php");
 
 
 
@@ -25,22 +15,58 @@ if (file_exists($rc_cookie)) {unlink($rc_cookie);}
 IMAP_login($imap_h,$imap_po,$imap_u,$imap_p);
 IMAP_idl();
 
+function RoundCube_isTagSet($message_uid,$tag_uid)  {
+	global $rc_host, $rc_host_path, $rc_id,$rc_cookie;
+	$curl = curl_init();
+	curl_setopt ($curl, CURLOPT_URL, $rc_host.$rc_host_path."/".$rc_id."/?_task=mail&_action=list&_refresh=1&_layout=widescreen&_mbox=INBOX&_remote=1");
+	curl_setopt ($curl, CURLOPT_RETURNTRANSFER, true);
+	curl_setopt ($curl, CURLOPT_COOKIEJAR, $rc_cookie);
+	curl_setopt ($curl, CURLOPT_COOKIEFILE, $rc_cookie);
+	curl_setopt ($curl, CURLOPT_HEADER, 1);
+	$result = curl_exec($curl);
+	$header_size = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
+	curl_close($curl);
+	$curl="";
+	$headers = substr($result, 0, $header_size);
+	$body = substr($result, $header_size);	
+	$data=json_decode($body, true);
+	if (! isset($data["env"]) ) { return false; }
+	if (! isset($data["env"]["message_tags"]) ) { return false; }
+	if (! isset($data["env"]["message_tags"][$message_uid."-INBOX"]) ) { return false; }
+	foreach ($data["env"]["message_tags"][$message_uid."-INBOX"] as $uid) {
+		if ( $uid == $tag_uid ) { return true; }
+	}
+	return false;
+}
+
 function work() {
 	global $messages, $kolab_tags, $tag_messages_processed;
-	logging("Starte Worker");
+	logging("Working....");
 	foreach($messages as $key => $message) {
-		logging("Starte Worker 1");
 		if (count($messages[$key]["tags"]) ) {
-			echo "Bearbeite Nachricht nummer '$key'\n";
+			logging( "processing '$key(".$messages[$key]["uid"].")'");
 			foreach ($messages[$key]["tags"] as $tag) {
 				if (isset($kolab_tags[$tag])) {
-					logging("\t".$tag." OK!");
-					set_mail_tag($messages[$key]["uid"],$kolab_tags[$tag]["uid"]);
+					
+					RoundCube_setMailTag($messages[$key]["uid"],$kolab_tags[$tag]["uid"]);
+					if (RoundCube_isTagSet($messages[$key]["uid"],$kolab_tags[$tag]["uid"])) {
+						logging($tag."(".$kolab_tags[$tag]["uid"].") OK!");	
+						IMAP_send("STORE $key +FLAGS ($tag_messages_processed)\r\n");
+						IMAP_remove_flag($key,$tag);
+						
+					} else {
+						logging("\t".$tag."(".$kolab_tags[$tag]["uid"].") NOK!");
+						IMAP_remove_flag($key,$tag_messages_processed);
+					}	
+					
 				} else {
-					logging( "\t'".$tag."' ignored. not found in kolab.");
+					logging($tag."' ignored. not found in kolab.");
+					IMAP_send("STORE $key +FLAGS ($tag_messages_processed)\r\n");
 				}
 			}
-			IMAP_send("STORE $key +FLAGS ($tag_messages_processed)\r\n");
+			
+			//IMAP_send("STORE $key +FLAGS ($tag_messages_processed)\r\n");
+			
 		}
 	}
 }
@@ -52,6 +78,12 @@ function IMAP_logout() {
 	$response=IMAP_send("LOGOUT\r\n");
 	fclose($sock);
 	logging("IMAP Logged OUT"); 
+}
+function IMAP_remove_flag($message_id,$flag) {
+	global $sock;
+	$response=IMAP_send("STORE $message_id -FLAGS ($flag)\r\n");
+	if (!preg_match("/\.\sOK\s.*\r\n/",$response,$match)) { return false; }
+	return true;
 }
 function IMAP_idl() {
 	global $imap_h,$imap_po,$imap_u,$imap_p, $rc_cookie;
@@ -73,8 +105,8 @@ function IMAP_idl() {
 				work();
 			}
 		}
-			
-		sleep(10);
+		logging("IDLE");	
+		sleep(60);
 	}
 }
 
@@ -88,7 +120,7 @@ function in_array_r($needle, $haystack, $strict = false) {
     return false;
 }
 
-function set_mail_tag($message_uid,$tag_uid) {
+function RoundCube_setMailTag($message_uid,$tag_uid) {
 	global $imap_u,$imap_p,$rc_u,$rc_p,$rc_host,$rc_host_path,$rc_cookie,$rc_newurl,$rc_id,$kolab_tags;
 	$post_array=[];
 	$post_array["_uid"]=$message_uid;
@@ -104,10 +136,10 @@ function set_mail_tag($message_uid,$tag_uid) {
 	curl_setopt ($curl, CURLOPT_RETURNTRANSFER, true);
 	curl_setopt ($curl, CURLOPT_COOKIEJAR, $rc_cookie);
 	curl_setopt ($curl, CURLOPT_COOKIEFILE, $rc_cookie);
-	curl_setopt ($curl, CURLOPT_HEADER, 0);
+	curl_setopt ($curl, CURLOPT_HEADER, 1);
 	$result = curl_exec($curl);
-	//echo "\t".$result."\n";
-
+	// echo "\t".$result."\n";
+	// echo "\t".$message_uid."\n";
 	$header_size = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
 	curl_close($curl);
 	$curl="";
